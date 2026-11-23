@@ -1,0 +1,19 @@
+name: Recepção automática de ideias
+on:
+  issues:
+    types: [opened]
+permissions:
+  issues: write
+jobs:
+  recepcao:
+    if: github.event.issue.user.login == 'meututorprofissional'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Confirmar recebimento
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          gh issue comment "$ISSUE_NUMBER" --body "🤖 **Equipe IA — Recepção automática:** ideia recebida! Este é um teste de automação do GitHub, ainda sem análise por modelos de IA. Nenhum código do Meu Tutor IA foi alterado."
