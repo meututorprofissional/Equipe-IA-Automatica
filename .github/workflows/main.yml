@@ -1,0 +1,15 @@
+
+name: Teste da Equipe IA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  teste:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirmar funcionamento
+        run: echo "Equipe IA - sistema de testes funcionando!"
