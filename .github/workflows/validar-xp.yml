@@ -20,6 +20,8 @@ jobs:
         run: |
           git clone --depth 1 https://github.com/meututorprofissional/Meu-Tutor-Ia.git app
           git -C app rev-parse HEAD
+          git -C app fetch --depth 1 origin 3abedfbc06674d91ff5c58697929ce55b1567d52
+          git -C app show FETCH_HEAD:index.html > candidato.html
       - name: Testar CSS real em cópia isolada
         run: |
           node <<'JS'
@@ -27,6 +29,8 @@ jobs:
           (async()=>{
             const browser=await chromium.launch();
             const results=[];
+            require('fs').mkdirSync('evidencias',{recursive:true});
+            const candidate=require('fs').readFileSync('candidato.html','utf8');
             const html=require('fs').readFileSync('app/index.html','utf8');
             const styles=[...html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)].map(m=>m[1]).join('\n');
             if(!styles.includes('profileXpPanel'))throw Error('CSS real não localizado');
@@ -38,7 +42,12 @@ jobs:
               const panel=page.locator('#profileXpPanel');
               const before=await panel.evaluate(e=>({color:getComputedStyle(e).backgroundColor,image:getComputedStyle(e).backgroundImage}));
               const blue=v=>v.image.includes('38, 59, 133')&&v.image.includes('23, 31, 77');
-              if(!blue(before)) await panel.evaluate(e=>e.style.setProperty('background','linear-gradient(145deg,#263b85,#171f4d)','important'));
+              const reveal=async()=>panel.evaluate(e=>{for(let p=e;p;p=p.parentElement){if(getComputedStyle(p).display==='none')p.style.setProperty('display','block','important');if(getComputedStyle(p).visibility==='hidden')p.style.setProperty('visibility','visible','important');}});
+              await reveal();
+              await panel.screenshot({path:'evidencias/'+results.length+'-antes.png',timeout:5000});
+              await page.setContent(candidate.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,''));
+              await reveal();
+              await panel.screenshot({path:'evidencias/'+results.length+'-depois.png',timeout:5000});
               const after=await panel.evaluate(e=>({color:getComputedStyle(e).backgroundColor,image:getComputedStyle(e).backgroundImage}));
               results.push({name,before,after,pass:blue(after),changed:!blue(before)});
               await page.close();
@@ -49,13 +58,18 @@ jobs:
             if(results.some(r=>!r.pass))process.exitCode=1;
           })().catch(e=>{console.error(e);process.exitCode=1});
           JS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: comparativo-xp-pr23
+          path: evidencias/
       - name: Publicar evidência na reunião
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           if test -f resultado.json; then
-            printf '## Validação prática — CSS e HTML reais em cópia isolada\n\nTeste em Chromium com três configurações simuladas. HTML e CSS reais do repositório, com JavaScript e rede desativados; não valida login, comportamento dinâmico ou dispositivos físicos. Nenhuma alteração publicada.\n\n```json\n' > relato.md
+            printf '## Validação prática — Comparação main versus PR #23\n\nTeste em Chromium com três configurações simuladas. HTML e CSS reais do repositório, com JavaScript e rede desativados; não valida login, comportamento dinâmico ou dispositivos físicos. Nenhuma alteração publicada. Imagens no artefato comparativo-xp-pr23 da execução.\n\n```json\n' > relato.md
             cat resultado.json >> relato.md
             printf '\n```\n' >> relato.md
             gh issue comment 10 --repo "$GITHUB_REPOSITORY" --body-file relato.md
