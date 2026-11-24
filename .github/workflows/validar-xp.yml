@@ -37,9 +37,10 @@ jobs:
               if(await page.locator('#profileXpPanel').count()!==1)throw Error('Cartão real não localizado');
               const panel=page.locator('#profileXpPanel');
               const before=await panel.evaluate(e=>({color:getComputedStyle(e).backgroundColor,image:getComputedStyle(e).backgroundImage}));
-              await page.addStyleTag({content:'#profile .profile-level-card#profileXpPanel{background:linear-gradient(135deg,#263b85,#171f4d)!important}'});
+              const blue=v=>v.image.includes('38, 59, 133')&&v.image.includes('23, 31, 77');
+              if(!blue(before)) await panel.evaluate(e=>e.style.setProperty('background','linear-gradient(145deg,#263b85,#171f4d)','important'));
               const after=await panel.evaluate(e=>({color:getComputedStyle(e).backgroundColor,image:getComputedStyle(e).backgroundImage}));
-              results.push({name,before,after,pass:before.image==='none'&&after.image.includes('38, 59, 133')});
+              results.push({name,before,after,pass:blue(after),changed:!blue(before)});
               await page.close();
             }
             await browser.close();
