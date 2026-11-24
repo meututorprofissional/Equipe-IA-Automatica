@@ -1,0 +1,53 @@
+name: Validar cartão XP sem publicar
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/validar-xp.yml'
+permissions:
+  contents: read
+  issues: write
+jobs:
+  teste:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --no-save playwright && npx playwright install --with-deps chromium
+      - name: Testar cascata CSS isolada
+        run: |
+          node <<'JS'
+          const {chromium,devices}=require('playwright');
+          (async()=>{
+            const browser=await chromium.launch();
+            const results=[];
+            for(const [name,options] of [['Android normal',devices['Pixel 7']],['Android desktop simulado',{viewport:{width:980,height:500},isMobile:false,hasTouch:true}],['Notebook',{viewport:{width:1366,height:768}}]]){
+              const page=await browser.newPage(options);
+              await page.route('**/*',route=>route.abort());
+              await page.setContent('<style>#profile .profile-level-card#profileXpPanel{background:rgba(18,9,44,.6)!important} #profile #profileXpPanel{background:linear-gradient(135deg,#263b85,#171f4d)!important}</style><section id="profile"><div class="profile-level-card" id="profileXpPanel">XP</div></section>');
+              const panel=page.locator('#profileXpPanel');
+              const before=await panel.evaluate(e=>({color:getComputedStyle(e).backgroundColor,image:getComputedStyle(e).backgroundImage}));
+              await page.addStyleTag({content:'#profile .profile-level-card#profileXpPanel{background:linear-gradient(135deg,#263b85,#171f4d)!important}'});
+              const after=await panel.evaluate(e=>({color:getComputedStyle(e).backgroundColor,image:getComputedStyle(e).backgroundImage}));
+              results.push({name,before,after,pass:before.image==='none'&&after.image.includes('38, 59, 133')});
+              await page.close();
+            }
+            await browser.close();
+            require('fs').writeFileSync('resultado.json',JSON.stringify(results,null,2));
+            console.log(results);
+            if(results.some(r=>!r.pass))process.exitCode=1;
+          })().catch(e=>{console.error(e);process.exitCode=1});
+          JS
+      - name: Publicar evidência na reunião
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if test -f resultado.json; then
+            printf '## Validação prática — reprodução isolada da cascata CSS\n\nTeste em Chromium com três configurações simuladas. Não é teste do aplicativo real nem de dispositivos físicos. Nenhuma alteração publicada.\n\n```json\n' > relato.md
+            cat resultado.json >> relato.md
+            printf '\n```\n' >> relato.md
+            gh issue comment 10 --repo "$GITHUB_REPOSITORY" --body-file relato.md
+          fi
