@@ -12,7 +12,7 @@ jobs:
   rodada:
     if: github.event.comment.user.login == github.repository_owner && github.event.issue.user.login == github.repository_owner && !github.event.issue.pull_request && github.event.issue.state == 'open'
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 20
     steps:
       - name: Debate e proposta revisada
         env:
@@ -27,7 +27,7 @@ jobs:
           issue=event['issue']
           owner=event['repository']['owner']['login']
           comment=event['comment']
-          if comment['user']['login'] != owner or issue['user']['login'] != owner:
+          if comment['user']['login'] != owner or issue['user']['login'] != owner or comment.get('body','').startswith('<!-- chatgpt-'):
               raise SystemExit(0)
           url='https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']+'/issues/'+str(issue['number'])+'/comments'
           headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','User-Agent':'Equipe-IA-Automatica/1.0'}
@@ -40,9 +40,16 @@ jobs:
                   except urllib.error.HTTPError as e:
                       if payload is not None and endpoint == url:
                           raise
-                      if e.code not in (502,503,504) or attempt==2:
+                      if e.code not in (429,502,503,504) or attempt==2:
                           raise
-                      time.sleep(10*(attempt+1))
+                      delay=10*(attempt+1)
+                      if e.code==429:
+                          retry=e.headers.get('Retry-After','')
+                          delay=max(65*(attempt+1),int(retry) if retry.isdigit() else 0)
+                          if delay>300:
+                              raise SystemExit('Limite da API: aguarde o prazo indicado pelo provedor')
+                      print('HTTP',e.code,'; nova tentativa em',delay,'segundos',flush=True)
+                      time.sleep(delay)
           history=[]
           for page in range(1,21):
               batch=request(url+'?per_page=100&page='+str(page),headers)
@@ -61,7 +68,7 @@ jobs:
               if model=='Gemini':
                   r=request('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent',{'x-goog-api-key':os.environ['GEMINI_API_KEY']},{'contents':[{'parts':[{'text':prompt}]}],'generationConfig':{'maxOutputTokens':1500}})
                   return '\n'.join(p.get('text','') for p in r.get('candidates',[{}])[0].get('content',{}).get('parts',[]) if not p.get('thought'))
-              r=request('https://api.groq.com/openai/v1/chat/completions',{'Authorization':'Bearer '+os.environ['GROQ_API_KEY'],'User-Agent':'Equipe-IA-Automatica/1.0'},{'model':'openai/gpt-oss-120b','messages':[{'role':'user','content':prompt}],'max_completion_tokens':2500,'reasoning_effort':'low'},60)
+              r=request('https://api.groq.com/openai/v1/chat/completions',{'Authorization':'Bearer '+os.environ['GROQ_API_KEY'],'User-Agent':'Equipe-IA-Automatica/1.0'},{'model':'openai/gpt-oss-120b','messages':[{'role':'user','content':prompt}],'max_completion_tokens':1500,'reasoning_effort':'low'},60)
               return r['choices'][0]['message']['content'] or ''
           answers=[]
           stages=[('gemini','Gemini','Reconsidere a proposta anterior diante da nova mensagem.'),('gpt','GPT-OSS','Avalie a nova mensagem e questione ou complemente Gemini.'),('revisao','Gemini','Responda ao GPT-OSS e indique pontos de acordo e discordância.'),('proposta','GPT-OSS','Apresente uma proposta coletiva preliminar baseada no debate, distinguindo acordos, discordâncias e verificações pendentes. Não atribua consenso a quem não o expressou. Peça decisão do proprietário.')]
@@ -70,6 +77,8 @@ jobs:
               if marker in existing:
                   answers.append(existing[marker])
                   continue
+              if slug=='proposta':
+                  time.sleep(65)
               answer=ask(model,task,answers).strip()
               if not answer:
                   raise SystemExit('Resposta vazia: '+slug)
