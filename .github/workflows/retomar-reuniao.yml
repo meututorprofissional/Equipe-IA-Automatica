@@ -117,6 +117,15 @@ jobs:
           cid=str(comment['id'])
           prefix='<!-- equipe-retomada-'+cid+'-'
           existing={c['body'].split('\n',1)[0]:c['body'] for c in history if c.get('user',{}).get('login')=='github-actions[bot]' and c.get('body','').startswith(prefix)}
+          # Explicit stop-debate instruction: hand off to practical validation, never deploy.
+          import unicodedata
+          normalized=unicodedata.normalize('NFKD',comment.get('body','').lower()).encode('ascii','ignore').decode()
+          stop_debate=any(x in normalized for x in ('nao iniciem outro debate','nao comecem outro debate','encerrem o debate','parem de debater'))
+          if stop_debate:
+              marker=prefix+'proposta -->'
+              if marker not in existing:
+                  request(url,headers,{'body':marker+'\n## Encaminhamento para validação prática\n\nDebate encerrado por solicitação do proprietário. A autorização para testes temporários não autoriza publicação nem alterações permanentes. A execução deve ser realizada por um agente com acesso ao ambiente de testes; este workflow não possui navegador nem executa a aplicação. Resultado prático ainda pendente.'})
+              raise SystemExit(0)
           prior=[{'autor':c['user']['login'],'texto':c.get('body','')[:5000]} for c in history if c['id']<comment['id'] and c.get('user',{}).get('login') in (owner,'github-actions[bot]')]
           context={'titulo':issue['title'],'descricao':(issue.get('body') or '')[:4500],'historico':[{'autor':c['autor'],'texto':c['texto'][:900]} for c in prior[-6:]],'mensagem_proprietario':comment['body'][:3000]}
           def ask(model, task, answers):
