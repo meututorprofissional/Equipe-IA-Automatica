@@ -2,17 +2,27 @@ name: Retomar reunião pelo comentário do proprietário
 on:
   issue_comment:
     types: [created]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: Número da reunião
+        required: true
+        type: string
+      comment_id:
+        description: ID do comentário a retomar
+        required: true
+        type: string
 permissions:
   contents: read
   issues: write
 concurrency:
-  group: retomada-${{ github.event.issue.number }}-${{ github.event.comment.id }}
+  group: retomada-${{ github.event.issue.number || inputs.issue_number }}-${{ github.event.comment.id || inputs.comment_id }}
   cancel-in-progress: false
 jobs:
   rodada:
-    if: github.event.comment.user.login == github.repository_owner && github.event.issue.user.login == github.repository_owner && !github.event.issue.pull_request && github.event.issue.state == 'open'
+    if: github.event_name == 'workflow_dispatch' || github.event.comment.user.login == github.repository_owner && github.event.issue.user.login == github.repository_owner && !github.event.issue.pull_request && github.event.issue.state == 'open'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - name: Debate e proposta revisada
         env:
@@ -24,25 +34,38 @@ jobs:
           import os, json, time, urllib.request, urllib.error
           with open(os.environ['GITHUB_EVENT_PATH']) as f:
               event=json.load(f)
-          issue=event['issue']
-          owner=event['repository']['owner']['login']
-          comment=event['comment']
+          owner=os.environ['GITHUB_REPOSITORY'].split('/')[0]
+          if 'inputs' in event:
+              api='https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']
+              def get(path):
+                  req=urllib.request.Request(api+path,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'User-Agent':'Equipe-IA-Automatica/1.0'})
+                  with urllib.request.urlopen(req,timeout=30) as response:
+                      return json.load(response)
+              number=int(event['inputs']['issue_number'])
+              cid=int(event['inputs']['comment_id'])
+              issue=get('/issues/'+str(number))
+              comment=get('/issues/comments/'+str(cid))
+              if comment['issue_url']!=issue['url'] or issue['state']!='open' or 'pull_request' in issue:
+                  raise SystemExit('Reunião inválida')
+          else:
+              issue=event['issue']
+              comment=event['comment']
           if comment['user']['login'] != owner or issue['user']['login'] != owner or comment.get('body','').startswith('<!-- chatgpt-'):
               raise SystemExit(0)
           url='https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']+'/issues/'+str(issue['number'])+'/comments'
           headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','User-Agent':'Equipe-IA-Automatica/1.0'}
           def request(endpoint, h, payload=None, timeout=45):
               req=urllib.request.Request(endpoint,headers=h if payload is None else {**h,'Content-Type':'application/json'},data=None if payload is None else json.dumps(payload).encode())
-              for attempt in range(3):
+              for attempt in range(5):
                   try:
                       with urllib.request.urlopen(req,timeout=timeout) as r:
                           return json.load(r)
                   except urllib.error.HTTPError as e:
                       if payload is not None and endpoint == url:
                           raise
-                      if e.code not in (429,502,503,504) or attempt==2:
+                      if e.code not in (429,502,503,504) or attempt==4:
                           raise
-                      delay=10*(attempt+1)
+                      delay=30*(attempt+1)
                       if e.code==429:
                           retry=e.headers.get('Retry-After','')
                           delay=max(65*(attempt+1),int(retry) if retry.isdigit() else 0)
