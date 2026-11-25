@@ -1,0 +1,37 @@
+name: CrewAI piloto isolado
+on:
+  push:
+    branches: [teste-crewai]
+    paths: ['.github/workflows/crewai-piloto.yml']
+permissions:
+  contents: read
+jobs:
+  piloto:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      OTEL_SDK_DISABLED: 'true'
+      CREWAI_DISABLE_TELEMETRY: 'true'
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install crewai
+      - name: Verificar instalação e orquestração sem API paga
+        run: |
+          python - <<'PY'
+          from crewai import Agent, Task, Crew, Process
+          from crewai import BaseLLM
+          class LocalFake(BaseLLM):
+              def __init__(self, name):
+                  super().__init__(model=name, temperature=0)
+              def call(self, messages, **kwargs):
+                  return "Proposta simulada para teste de orquestração."
+          a=Agent(role="Consultor A",goal="Analisar",backstory="Agente simulado",llm=LocalFake("local-a"),allow_delegation=False)
+          b=Agent(role="Consultor B",goal="Revisar",backstory="Agente simulado",llm=LocalFake("local-b"),allow_delegation=False)
+          t=Task(description="Analise uma proposta fictícia",expected_output="Texto",agent=a)
+          u=Task(description="Revise a proposta anterior",expected_output="Texto",agent=b,context=[t])
+          result=Crew(agents=[a,b],tasks=[t,u],process=Process.sequential,memory=False,verbose=False).kickoff()
+          assert len(result.tasks_output)==2
+          print("Orquestração simulada concluída; nenhum provedor real validado.")
+          PY
