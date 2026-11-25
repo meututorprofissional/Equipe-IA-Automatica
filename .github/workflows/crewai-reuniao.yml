@@ -18,7 +18,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install crewai
+      - run: pip install 'crewai[litellm,google-genai]'
       - name: Reunião real limitada
         run: |
           python - <<'PY'
