@@ -5,6 +5,7 @@ on:
     paths: ['.github/workflows/crewai-reuniao.yml']
 permissions:
   contents: read
+  issues: write
 jobs:
   reuniao:
     runs-on: ubuntu-latest
@@ -32,7 +33,7 @@ jobs:
                   print(name, "chave ausente"); continue
               try:
                   a=Agent(role=name,goal="Avaliar soluções gratuitas",backstory="Consultor técnico independente",llm=LLM(model=model,api_key=os.environ[key],temperature=0,max_tokens=1800,timeout=45),allow_delegation=False,max_iter=1,max_retry_limit=0)
-                  t=Task(description="Proponha uma forma de recuperar falhas temporárias HTTP 503 sem custos extras. Não afirme ter testado código.",expected_output="Parecer curto em português",agent=a)
+                  t=Task(description="Investigue em caráter hipotético a falha HTTP 502 da IA do Meu Tutor IA na issue 11. O Worker usa Workers AI e captura exceções com mensagem genérica. Proponha diagnóstico e recuperação sem custos extras. Não afirme ter testado código.",expected_output="Parecer curto em português",agent=a)
                   result=Crew(agents=[a],tasks=[t],process=Process.sequential,memory=False,verbose=False).kickoff()
                   if not result.raw.strip(): raise ValueError("empty")
                   agents.append(a); opinions.append(name+": "+result.raw[:1800])
@@ -52,7 +53,9 @@ jobs:
                   print(a.role,"revisão falhou:",type(e).__name__)
           if len(reviews)!=2: raise SystemExit("Debate incompleto")
           t=Task(description="Sintetize os pareceres e revisões abaixo, sem inventar consenso. Proposta pendente de aprovação humana.\n"+context+"\n"+"\n".join(reviews),expected_output="Proposta coletiva e divergências",agent=agents[-1])
-          r=Crew(agents=[agents[-1]],tasks=[t],memory=False,verbose=False).kickoff()
+          # A síntese final aguarda a contribuição independente do ChatGPT.
+          from types import SimpleNamespace
+          r=SimpleNamespace(raw="Pendente de contribuição do ChatGPT; não é proposta final.")
           from pathlib import Path
           report="# Reunião experimental — aguardando aprovação humana\n\n## Pareceres\n\n"+"\n\n".join(opinions)+"\n\n## Revisões\n\n"+"\n\n".join(reviews)+"\n\n## Proposta\n\n"+r.raw
           Path("reuniao.md").write_text(report,encoding="utf-8")
@@ -60,6 +63,15 @@ jobs:
               out.write(report)
           print("Relatório registrado; nenhuma alteração autorizada.")
           PY
+      - name: Publicar pareceres para contribuição do ChatGPT
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          printf '<!-- crewai-pareceres-v1 -->\n' > comentario.md
+          cat reuniao.md >> comentario.md
+          if ! gh api --paginate repos/${{ github.repository }}/issues/11/comments --jq '.[].body' | grep -F '<!-- crewai-pareceres-v1 -->' >/dev/null; then
+            gh issue comment 11 --repo "${{ github.repository }}" --body-file comentario.md
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: pareceres-crewai
