@@ -18,7 +18,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install 'crewai[litellm,google-genai]'
+      - run: pip install 'crewai[litellm,google-genai]==1.15.45'
       - name: Reunião real limitada
         run: |
           python - <<'PY'
@@ -31,7 +31,7 @@ jobs:
               if not os.getenv(key):
                   print(name, "chave ausente"); continue
               try:
-                  a=Agent(role=name,goal="Avaliar soluções gratuitas",backstory="Consultor técnico independente",llm=LLM(model=model,api_key=os.environ[key],temperature=0,max_tokens=700,timeout=45),allow_delegation=False,max_iter=1,max_retry_limit=0)
+                  a=Agent(role=name,goal="Avaliar soluções gratuitas",backstory="Consultor técnico independente",llm=LLM(model=model,api_key=os.environ[key],temperature=0,max_tokens=1800,timeout=45),allow_delegation=False,max_iter=1,max_retry_limit=0)
                   t=Task(description="Proponha uma forma de recuperar falhas temporárias HTTP 503 sem custos extras. Não afirme ter testado código.",expected_output="Parecer curto em português",agent=a)
                   result=Crew(agents=[a],tasks=[t],process=Process.sequential,memory=False,verbose=False).kickoff()
                   if not result.raw.strip(): raise ValueError("empty")
@@ -53,5 +53,15 @@ jobs:
           if len(reviews)!=2: raise SystemExit("Debate incompleto")
           t=Task(description="Sintetize os pareceres e revisões abaixo, sem inventar consenso. Proposta pendente de aprovação humana.\n"+context+"\n"+"\n".join(reviews),expected_output="Proposta coletiva e divergências",agent=agents[-1])
           r=Crew(agents=[agents[-1]],tasks=[t],memory=False,verbose=False).kickoff()
-          print("Proposta experimental:",r.raw)
+          from pathlib import Path
+          report="# Reunião experimental — aguardando aprovação humana\n\n## Pareceres\n\n"+"\n\n".join(opinions)+"\n\n## Revisões\n\n"+"\n\n".join(reviews)+"\n\n## Proposta\n\n"+r.raw
+          Path("reuniao.md").write_text(report,encoding="utf-8")
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a",encoding="utf-8") as out:
+              out.write(report)
+          print("Relatório registrado; nenhuma alteração autorizada.")
           PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pareceres-crewai
+          path: reuniao.md
+          retention-days: 7
